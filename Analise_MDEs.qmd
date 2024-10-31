@@ -1,0 +1,425 @@
+---
+title: "Analise MDEs"
+author: Diego Pinheiro de Menezes
+format: html
+#date: today
+editor: source
+---
+
+## Análise de Modelos Digitais de Elevação, gratuitos e pagos
+
+Este documento apresenta os códigos em R realizados para análise estatística comparativa das altitudes levantadas em trabalho de campo entre 02 e 03 de agosto de 2023 na cidade de Cáceres/MT através da localização de referências de nível remanescentes do IBGE e o transporte de altitudes para mais 49 pontos através de rastreio GNSS e nivelamento geométrico.
+
+Aqui os dados de campo (coluna AltReal) foram usadas como referência para avaliação da correspondência com os modelos digitais de elevação de distribuição gratuita ou paga considerados.
+
+### **1ª Etapa: Lendo arquivo Excel**
+
+```{r}
+# Biblioteca requisitada
+library(readxl)
+
+# Caminho do arquivo
+file_path <- "E:\\COMPRA DE IMAGENS\\ESTATISTICAS\\Sumario_estatisticas_out24.xls"
+
+# Lendo o arquivo XLS
+dem <- read_excel(file_path)
+
+# Apresentado a estrutura de dados
+str(dem)
+
+```
+
+### **2ª Etapa: Convertendo formato de dados para formatos compatíveis com a análide do R**
+
+Após verificar se os dados estão carregados e verificar sua estrutura, converta as colunas necessárias para formatos numéricos, principalmente aquelas que serão utilizadas para cálculos:
+
+```{r}
+# Converta colunas relevantes em numéricas, caso ainda não o tenham feito
+numeric_columns <- c("TANDEM", "SRTM", "NASADEM", "ANADEM", "FABDEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "AltReal")
+for(col in numeric_columns) {
+  dem[[col]] <- as.numeric(as.character(dem[[col]]))
+}
+
+# Verifique se a conversão introduziu valores NA
+sapply(dem[numeric_columns], function(x) sum(is.na(x)))
+
+```
+
+### **3ª Etapa: Sumário estatísitco**
+
+Agora que você garantiu que os dados estão formatados corretamente, resumi-los lhe dará uma rápida visão geral do intervalo e da presença de possíveis problemas, como valores NA:
+
+```{r}
+# Sumário estaístico do conjunto de dados
+summary(dem)
+```
+
+### **4ª Etapa: Ajustando o Data Frame (quadro de dados)**
+
+```{r}
+# Biblioteca requisitada
+library(reshape2) 
+
+# Crie um novo DataFrame que calcule erros para cada fonte DEM
+error_data <- dem
+for(source in numeric_columns) {
+  if(source != "AltReal") {  # Certifique-se de não incluir campo AltReal nos cálculos de erro
+    error_column_name <- paste0("Error_", source)
+    error_data[[error_column_name]] <- dem[[source]] - dem$AltReal
+  }
+}
+
+# Converta os dados de formato amplo para formato longo usando melt from reshape2
+error_columns <- paste0("Error_", numeric_columns[numeric_columns != "AltReal"])
+data_long <- melt(error_data, id.vars = "AltReal", measure.vars = error_columns,
+                  variable.name = "DEM_Source", value.name = "Error")
+
+# Ajuste DEM_Source para remover o prefixo 'Error_'
+data_long$DEM_Source <- sub("Error_", "", data_long$DEM_Source)
+
+# Sumário dos dados modificados
+summary(data_long)
+
+```
+
+### **5ª Etapa: Ajustando os níveis de fatores**
+
+Após ajustar os rótulos para remover o prefixo "Error\_" e antes de plotar, especifique a ordem dos níveis dos fatores com base em seus requisitos:
+
+```{r}
+# Ajuste DEM_Source para remover o prefixo 'Error_' e definir a ordem
+data_long$DEM_Source <- sub("Error_", "", data_long$DEM_Source)
+
+# Especifique a ordem desejada dos dados DEM
+ordered_sources <- c("TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "ANADEM", "FABDEM")
+
+# Converta DEM_Source em um fator e especifique a ordem
+data_long$DEM_Source <- factor(data_long$DEM_Source, levels = ordered_sources)
+
+```
+
+### **6ª Etapa: plotando o BOXPLOT com rótutos ajustados e ordenados**
+
+Agora que seus rótulos de dados estão corrigidos, plote usando a biblioteca **`ggplot2`**
+
+```{r}
+# Biblioteca requisitada
+library(ggplot2)
+
+# Plotando com o DEM_Source ordenado
+p <- ggplot(data_long, aes(x = DEM_Source, y = Error, fill = DEM_Source)) +
+  geom_boxplot() +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        axis.title = element_text(size = 10),
+        legend.position = "none")+
+  labs(title = "Boxplot de erros de valores de MDEs comparados com Alitude em campo",
+       x = "Fonte de Dados", y = "Erro") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_cartesian(ylim = c(-15, 15))
+
+# Apresentado o gráfico
+print(p)
+
+
+```
+
+### **7ª Etapa:** Ajustando o BOXPLOT para orientação horizontal
+
+```{r}
+# Biblioteca requisitada
+library(ggplot2)
+
+# Plotando com o DEM_Source ordenado na orientação horizontal
+p <- ggplot(data_long, aes(x = DEM_Source, y = Error, fill = DEM_Source)) +
+  geom_boxplot() +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, size = 10),  # Certifique-se de que o texto esteja claro sobre fundo cinza
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        legend.position = "none",
+        panel.background = element_rect(fill = "lightgray", colour = "gray"),  # Defina o fundo do painel para cinza claro
+        panel.grid.major = element_line(color = "white"),  # Altere as linhas da grade para branco para visibilidade
+        panel.grid.minor = element_line(color = "white", linetype = "dotted")) +
+  labs(title = "Boxplot de erros de valores de MDEs comparados com alitude em campo",
+       x = "Modelos Digitais de Eleva;áo",  # Isso agora estará no eixo vertical
+       y = "Erro") +  # Isso agora estará no eixo horizontaç
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # Criar linha de referência vertical
+  coord_cartesian(ylim = c(-15, 15)) +  # Ajuste se necessário para visualização horizontal
+  coord_flip()  # Inverta as coordenadas para tornar o gráfico horizontal
+
+# Apresentado o gráfico
+print(p)
+
+```
+
+### **8ª Etapa. Análise de correlação**
+
+Avalie a força e a direção dos relacionamentos entre o campo **`AltReal`** e as![](images/clipboard-1833727882.png) demais fontes de dados
+
+```{r}
+# Analise de correlação
+correlation_matrix <- cor(dem[c("AltReal", "TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "ANADEM", "FABDEM")], use = "complete.obs")
+print(correlation_matrix)
+
+```
+
+### **9ª Etapa.** Mapa de calor das magnitudes de erro
+
+Crie um mapa de calor para visualizar a magnitude dos erros em diferentes fontes DEM. Isso pode ajudar a identificar quais fontes apresentam consistentemente erros maiores ou menores em relação ao campo **`AltReal`**.
+
+```{r}
+# Biblioteca requisitada
+library(pheatmap)
+
+# Cálculo dos erros
+error_data <- sapply(c("TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "ANADEM", "FABDEM"), function(x) {
+  abs(dem[[x]] - dem$AltReal)
+})
+
+# Conversão para um novo Data Frame
+error_df <- as.data.frame(error_data)
+colnames(error_df) <- c("TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "ANADEM", "FABDEM")
+
+# Gere mapa de calor sem rótulos de células, mas com rótulos de linhas e colunas
+pheatmap(as.matrix(error_df), cluster_rows = TRUE, cluster_cols = TRUE,
+         display_numbers = FALSE,  # Certifique-se de que nenhum número seja exibido dentro das células
+         fontsize = 12,  # Ajuste o tamanho da fonte para rótulos externos conforme necessário
+         border_color = NA,  # Remove linhas de grade entre células
+         color = colorRampPalette(c("darkgreen", "gold", "darkred"))(50))  # Ajuste a escala de cores para melhor visibilidade
+
+```
+
+### **Compreendendo o dendrograma em mapas de calor**
+
+1.  **Análise de agrupamento (Cluster Analysis)**: O dendograma ilustra como o algoritmo agrupou os dados. Cada ramificação representa um agrupamento, onde itens mais semelhantes (com base em seus dados) são agrupados mais próximos. Isso ajuda a identificar quais fontes têm padrões semelhantes de erros em relação ao campo **`AltReal`**.
+
+2.  **Agrupamento hierárquivo (Hierarchical Clustering)**: Esse agrupamento é hierárquico, o que significa que começa com cada item em seu próprio agrupamento e depois mescla progressivamente os agrupamentos com base em sua similaridade. A altura das mesclagens no dendograma reflete a distância ou dissimilaridade entre os clusters mesclados.
+
+### **10ª Etapa: Preparando um Dendograma**
+
+### **a) Preparando os dados**
+
+Primeiro, você precisa preparar seus dados de erro e realizar clustering hierárquico:
+
+```{r}
+# Biblioteca requisitada
+library(stats)
+
+# Supondo que error_data já esteja calculado e disponível
+# Calcule os erros novamente, se necessário
+error_data <- sapply(c("TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", "ANADEM", "FABDEM"), function(x) {
+  abs(dem[[x]] - dem$AltReal)
+})
+
+# Converter para DataFrame (Quadro de Dados)
+error_df <- as.data.frame(error_data)
+
+# Calcular matriz de distância
+dist_matrix <- dist(t(error_df), method = "euclidean")  # Usando transposição para fontes de cluster, não para observações
+
+# Execute cluster hierárquico
+hc <- hclust(dist_matrix, method = "complete")
+
+```
+
+### **b) Plotando o Dendograma com a biblioteca `dendextend`**
+
+Para um dendograma mais personalizável, você pode querer usar a biblioteca **`dendextend`**
+
+```{r}
+# Carregando e instalando a biblioteca dendextend (se necessário)
+#if (!require("dendextend")) install.packages("dendextend")
+library(dendextend)
+
+# Cria um dendograma customizadp
+dend <- as.dendrogram(hc)
+
+# Customização do dendrograma
+dend <- dend %>% 
+  set("labels_cex", 0.7) %>%  # Define o tamanho do labels
+  set("labels_col", "black") %>%  # Define cores dos labels
+  color_branches(k = 3)  # Cores de acordo com agrupamento de classes
+
+# Plotando o dendrograma
+plot(dend, main = "Dendrograma dos Modelos Digitais de Elevação")
+
+```
+
+### **Explanação**
+
+-   **Cálculo da distância**: A função **`dist`** calcula a matriz de distância necessária para clustering, que mede as semelhanças entre suas fontes DEM com base nos erros.
+
+-   **Agrupamento hierárquico**: **`hclust`** performs the actual clustering, and its result is used to generate the dendrogram.
+
+-   **Customização do Dendrogama**: Using **`dendextend`** enhances the dendrogram's visual appeal and clarity, allowing for color coding, label adjustments, and more.
+
+Essa abordagem ajudará você a visualizar o agrupamento de fontes DEM com base em suas características de erro, fornecendo insights sobre quais fontes se comportam de maneira semelhante em termos de padrões de erro em relação ao campo **`AltReal`**.
+
+### **Compreendendo o Dendrograma**
+
+1.  **Ramificações e agrupamentps**
+
+    -   **Altura das junções**: As linhas verticais, ou ramificações, representam agrupamentos de fontes DEM. A altura na qual dois ramos se unem reflete a distância ou diferença entre esses grupos. Junções inferiores sugerem distâncias menores ou maior similaridade.
+
+    -   **Codificação das cores**: As cores dos ramos podem indicar diferentes clusters identificados em um nível de corte específico, ajudando a diferenciar visualmente grupos de fontes de DEM.
+
+2.  **Interpretação de agrupamento:**
+
+    -   **Close Clusters**: Sources that are grouped closely (e.g., branches joining at lower heights) have more similar error characteristics. For example, if **`TANDEM`** and **`ALOS`** are in the same cluster and joined at a lower height, their error patterns in relation to **`AltReal`** are similar.
+
+    -   **Distant Clusters**: Conversely, sources that join at higher points (e.g., **`NASDEM`** and **`SRTM`** connecting at a higher height with other groups) exhibit more distinct or less similar error characteristics compared to other sources.
+
+### **Insights a partir do Dendrograma**
+
+-   **Fontes similares:** Identifique quais fontes DEM são consistentemente semelhantes em seus erros. Estas fontes podem ser intercambiáveis ou redundantes em certas aplicações, sugerindo que uma poderia potencialmente substituir outra.
+
+-   **Fontes exclusivas** Fontes distantes de outras no agrupamento (como se uma ramificação estivesse distintamente separada das demais) podem indicar comportamentos de erro únicos. Estas fontes podem ser particularmente valiosas ou problemáticas, dependendo dos seus casos de utilização específicos.
+
+-   **Análise de agrupamento:** O agrupamento pode orientar análises mais focadas. Por exemplo, se um grupo de fontes se agrupar consistentemente em diferentes conjuntos de dados ou parâmetros, pode ser benéfico investigar por que essas fontes se comportam de maneira semelhante. Isto pode levar a insights sobre as metodologias utilizadas por estas fontes de DEM ou sobre a sua adequação para regiões geográficas ou tipos de terreno específicos.
+
+### **Possíveis aplicações dos Insights**
+
+-   **Validação e Correção**: Compreender quais fontes têm perfis de erro semelhantes pode ajudar na validação dos dados do DEM por meio de comparação cruzada e potencialmente na correção de erros sistemáticos.
+
+-   **Otimização de recursos**: Em cenários com recursos limitados, identificar e usar apenas uma fonte de um cluster de fontes semelhantes pode otimizar custos e recursos computacionais sem sacrificar significativamente a precisão.
+
+-   **Perspectivas:** O agrupamento pode informar o desenvolvimento de novos produtos DEM ou o refinamento dos existentes, identificando quais características levam a representações de elevação mais precisas ou menos precisas.
+
+### **11ª Etapa: Preparando um gráfico de Distribuição de Valores**
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Remover a coluna "AltReal"
+numeric_columns <- numeric_columns[numeric_columns != "AltReal"]
+
+# Limpar valores não finitos
+dem[numeric_columns] <- lapply(dem[numeric_columns], function(x) {
+  x[!is.finite(x)] <- NA
+  return(x)
+})
+
+# Calcular os limites comuns para o eixo X
+all_values <- unlist(dem[numeric_columns], use.names = FALSE)
+common_limits <- range(all_values, na.rm = TRUE)
+
+# Criar gráficos para cada fonte DEM
+plots <- lapply(numeric_columns, function(source) {
+  ggplot(dem, aes_string(x = source)) +
+    geom_histogram(aes(y = ..density..), binwidth = 1, fill = "gray", color = "black") +
+    geom_density(color = "red", linewidth = 0.5) +
+    xlim(common_limits) +
+    theme_minimal() +
+    theme(
+      axis.title.x = element_text(size = 6, face = "bold"),  # Exibir nome como título do eixo X
+      axis.title.y = element_text(size = 5),                 # Texto do eixo Y menor
+      axis.text.x = element_text(size = 4),                  # Texto do eixo X menor
+      axis.text.y = element_text(size = 4)                   # Texto do eixo Y menor
+    ) +
+    xlab(source)  # Adicionar o nome do dado como rótulo do eixo X
+})
+
+# Organizar os gráficos em uma grade
+grid.arrange(grobs = plots, ncol = 3)
+
+
+```
+
+### **Explanação**
+
+### **1. Histogramas e Curvas de Densidade**
+
+-   **Histogramas**: Estes mostram a distribuição de frequência dos valores de elevação para cada fonte de MDE. O eixo x representa os valores de elevação e o eixo y a frequência destes valores.
+
+-   **Curvas de Densidade**: A linha vermelha sobreposta em cada histograma é uma curva de densidade, que fornece uma estimativa suave da distribuição. Isso ajuda a identificar a forma da distribuição de maneira mais clara do que os histogramas.
+
+### **2. Análise da Distribuição**
+
+-   **Tendência Central**: Observe o pico das curvas de densidade para avaliar onde a maioria dos pontos de dados se concentra. Um pico no centro com caudas simétricas sugere uma distribuição normal.
+
+-   **Assimetria**: Se o pico não está centralizado, com uma cauda mais longa que a outra, isso indica assimetria nos dados. Uma distribuição com assimetria à direita tem uma cauda longa à direita, e uma assimetria à esquerda tem uma cauda longa à esquerda.
+
+-   **Dispersão**: A dispersão do histograma e a largura da curva de densidade fornecem insights sobre a variabilidade dos dados. Um gráfico mais largo sugere uma maior variabilidade ou amplitude dos valores de elevação.
+
+### **3. Conclusões**
+
+Simetria e distribuições normais revelam maior coesão de dados (ex. SRTM) enquanto caldas longas podem indicar muitos outliers.
+
+Alguns gráficos podem mostrar distribuições bimodais ou multimodais (vários picos), o que pode indicar que o terreno amostrado pelo MDE inclui várias regiões de elevação distintas, como uma área costeira adjacente a uma cadeia de montanhas.
+
+### **12ª Etapa:  Teste T pareado**
+
+```{r}
+# Carregar pacotes necessários
+library(tidyverse)
+library(readxl)
+
+# Caminho do arquivo
+arquivo <- "E:\\COMPRA DE IMAGENS\\ESTATISTICAS\\Sumario_estatisticas_out24.xls"
+
+# Ler o arquivo Excel e converter colunas para numéricas
+dados <- read_excel(arquivo) %>%
+  mutate(across(where(is.character), ~ as.numeric(.)))
+
+# Definir os campos a serem comparados com AltReal
+modelos <- c("TANDEM", "SRTM", "NASADEM", "TOPODATA", "ASTER", 
+             "COPERNICUS", "AW3D", "ALOS", "WDORTHO", "WDLITE", 
+             "WDNEO", "NEXT_DSM", "NEXT_DTM", "DRONE", "VRICON", 
+             "ANADEM", "FABDEM")
+
+# Inicializar uma lista para armazenar os resultados
+resultados_t <- list()
+
+# Teste t pareado para cada modelo em relação ao AltReal, ignorando NAs
+for (modelo in modelos) {
+  teste <- t.test(dados[[modelo]], dados$AltReal, paired = TRUE, na.action = na.omit)
+  resultados_t[[modelo]] <- data.frame(
+    Modelo = modelo,
+    t_statistic = round(teste$statistic, 20),  # Arredondar para 10 casas decimais
+    p_value = format(teste$p.value, digits = 20, scientific = FALSE)  # Formatar p-valor
+  )
+}
+
+# Combinar todos os resultados em um único dataframe
+resultados_t_df <- bind_rows(resultados_t)
+
+# Exportar para CSV garantindo 10 casas decimais
+write_csv(resultados_t_df, "E:\\COMPRA DE IMAGENS\\ESTATISTICAS\\resultados_t_test.csv")
+
+# Exibir mensagem de sucesso
+cat("Resultados do teste t exportados com sucesso com 20 casas decimais!")
+
+
+
+```
+
+### **13ª Etapa:  Cálculo de MAE e RMSE**
+
+Estes índices medem o erro absoluto médio (MAE) e o erro quadrático médio (RMSE) para avaliar a precisão dos modelos.
+
+```{r}
+# Funções para calcular MAE e RMSE
+mae <- function(x, y) { mean(abs(x - y), na.rm = TRUE) }
+rmse <- function(x, y) { sqrt(mean((x - y)^2, na.rm = TRUE)) }
+
+# Calcular MAE e RMSE para cada modelo
+resultados_erros <- map_dfr(modelos, ~ {
+  data.frame(
+    Modelo = .x,
+    MAE = mae(dados[[.x]], dados$AltReal),
+    RMSE = rmse(dados[[.x]], dados$AltReal)
+  )
+})
+
+# Exportar resultados para CSV
+write_csv(resultados_erros, "E:\\COMPRA DE IMAGENS\\ESTATISTICAS\\resultados_mae_rmse.csv")
+cat("Resultados de MAE e RMSE exportados com sucesso!")
+
+```
